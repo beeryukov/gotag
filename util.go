@@ -85,6 +85,16 @@ func readInt(r io.Reader, n uint) (int, error) {
 	return getInt(b), nil
 }
 
+func formatIntBigEndian(x uint, n uint) []byte {
+	b := make([]byte, n)
+	bi := 0
+	for p := n; p > 0; p-- {
+		b[bi] = byte(x >> (8 * (p - 1)))
+		bi++
+	}
+	return b
+}
+
 func read7BitChunkedUint(r io.Reader, n uint) (uint, error) {
 	b, err := readBytes(r, n)
 	if err != nil {
@@ -99,4 +109,18 @@ func readUint32LittleEndian(r io.Reader) (uint32, error) {
 		return 0, err
 	}
 	return binary.LittleEndian.Uint32(b), nil
+}
+
+func writeUint32LittleEndian(w io.Writer, v uint32) error {
+	buf := []byte{
+		byte(v),
+		byte(v >> 8),
+		byte(v >> 16),
+		byte(v >> 24),
+	}
+	_, err := w.Write(buf)
+	if err != nil {
+		return err
+	}
+	return nil
 }

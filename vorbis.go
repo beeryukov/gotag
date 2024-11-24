@@ -70,6 +70,48 @@ func (m *metadataVorbis) readVorbisComment(r io.Reader) error {
 	return nil
 }
 
+func writeVorbisComment(rw io.ReadWriteSeeker, data map[string]string) error {
+	vendorLen, err := readUint32LittleEndian(rw)
+	if err != nil {
+		return err
+	}
+	_, err = rw.Seek(int64(vendorLen), io.SeekCurrent)
+	if err != nil {
+		return err
+	}
+	/*err = writeUint32LittleEndian(rw)
+	if err != nil {
+		return err
+	}*/
+
+	return nil
+}
+
+func PrepareVorbisComment(data map[string]string) []byte {
+	buf := bytes.Buffer{}
+
+	vendor := "GoTagsLib"
+	vendorLen := len(vendor)
+
+	writeUint32LittleEndian(&buf, uint32(vendorLen))
+	buf.Write([]byte(vendor))
+	writeUint32LittleEndian(&buf, uint32(len(data)))
+
+	for k, v := range data {
+		entryLen := 0
+		tagName := strings.ToUpper(k)
+		entryLen += len(tagName)
+		entryLen += 1 // for "=" sign
+		entryLen += len(v)
+		writeUint32LittleEndian(&buf, uint32(entryLen))
+		buf.Write([]byte(tagName))
+		buf.Write([]byte("="))
+		buf.Write([]byte(v))
+	}
+
+	return buf.Bytes()
+}
+
 func (m *metadataVorbis) readPictureBlock(r io.Reader) error {
 	b, err := readInt(r, 4)
 	if err != nil {

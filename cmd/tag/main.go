@@ -28,6 +28,18 @@ var (
 )
 
 func main() {
+	/*
+		for i := 9; i >= 0; i-- {
+			fmt.Println(i)
+		}
+		return*/
+
+	/*	file1, _ := os.OpenFile("/home/maxim/go/src/gotaglib/cmd/tag/1.txt", os.O_RDWR, 664)
+		file1.Seek(55, io.SeekCurrent)
+		defer file1.Close()
+		tag.ShiftFileRight(file1, 10)
+		return
+	*/
 	flag.Usage = usage
 	flag.Parse()
 
@@ -36,20 +48,36 @@ func main() {
 		return
 	}
 
-	f, err := os.Open(flag.Arg(0))
+	metadata := make(map[string]string)
+	metadata["Title"] = "The Wizard"
+	metadata["Album"] = "The Forgotten Tales"
+	metadata["Artist"] = "Blind Guardian"
+	metadata["Genre"] = "Power Metal"
+	metadata["Date"] = "1996"
+	metadata["Tracknumber"] = "5"
+
+	//tag.PrepareVorbisComment(metadata)
+	//return
+
+	file, err := os.Open(flag.Arg(0))
 	if err != nil {
 		fmt.Printf("error loading file: %v", err)
 		return
 	}
-	defer f.Close()
 
-	m, err := tag.ReadFrom(f)
+	m, err := tag.ReadFrom(file)
+	file.Close()
+
 	if err != nil {
 		fmt.Printf("error reading file: %v\n", err)
 		return
 	}
-
 	printMetadata(m)
+	//	return
+
+	file, err = os.OpenFile(flag.Arg(0), os.O_RDWR, 664)
+
+	tag.SaveTo(file, metadata)
 
 	if *raw {
 		fmt.Println()
