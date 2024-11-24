@@ -85,7 +85,7 @@ func readInt(r io.Reader, n uint) (int, error) {
 	return getInt(b), nil
 }
 
-func formatIntBigEndian(x uint, n uint) []byte {
+func formatUintBigEndian(x uint, n uint) []byte {
 	b := make([]byte, n)
 	bi := 0
 	for p := n; p > 0; p-- {

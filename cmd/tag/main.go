@@ -12,6 +12,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/dhowden/tag"
 	"github.com/dhowden/tag/mbz"
@@ -25,21 +27,11 @@ var usage = func() {
 var (
 	raw        = flag.Bool("raw", false, "show raw tag data")
 	extractMBZ = flag.Bool("mbz", false, "extract MusicBrainz tag data (if available)")
+	striptitle = flag.String("striptitle", "", "Delete this substring from song title")
 )
 
 func main() {
-	/*
-		for i := 9; i >= 0; i-- {
-			fmt.Println(i)
-		}
-		return*/
 
-	/*	file1, _ := os.OpenFile("/home/maxim/go/src/gotaglib/cmd/tag/1.txt", os.O_RDWR, 664)
-		file1.Seek(55, io.SeekCurrent)
-		defer file1.Close()
-		tag.ShiftFileRight(file1, 10)
-		return
-	*/
 	flag.Usage = usage
 	flag.Parse()
 
@@ -47,17 +39,6 @@ func main() {
 		usage()
 		return
 	}
-
-	metadata := make(map[string]string)
-	metadata["Title"] = "The Wizard"
-	metadata["Album"] = "The Forgotten Tales"
-	metadata["Artist"] = "Blind Guardian"
-	metadata["Genre"] = "Power Metal"
-	metadata["Date"] = "1996"
-	metadata["Tracknumber"] = "5"
-
-	//tag.PrepareVorbisComment(metadata)
-	//return
 
 	file, err := os.Open(flag.Arg(0))
 	if err != nil {
@@ -73,11 +54,26 @@ func main() {
 		return
 	}
 	printMetadata(m)
-	//	return
+
+	metadata := make(map[string]string)
+	metadata["Title"] = m.Title()
+	metadata["Album"] = m.Album()
+	metadata["Artist"] = m.Artist()
+	metadata["Genre"] = m.Genre()
+	metadata["Date"] = strconv.Itoa(m.Year())
+	trackNum, tracksTotal := m.Track()
+	metadata["Tracknumber"] = strconv.Itoa(trackNum)
+	metadata["TRACKTOTAL"] = strconv.Itoa(tracksTotal)
+
+	if len(*striptitle) > 0 {
+		metadata["Title"] = strings.ReplaceAll(metadata["Title"], *striptitle, "")
+		metadata["Title"] = strings.Trim(metadata["Title"], " \n\t\r")
+	}
 
 	file, err = os.OpenFile(flag.Arg(0), os.O_RDWR, 664)
 
 	tag.SaveTo(file, metadata)
+	return
 
 	if *raw {
 		fmt.Println()

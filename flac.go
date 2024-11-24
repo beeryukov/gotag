@@ -15,7 +15,7 @@ type blockType byte
 // FLAC block types.
 const (
 	// Stream Info Block           0
-	// Padding Block               1
+	paddingBlock blockType = 1
 	// Application Block           2
 	// Seektable Block             3
 	// Cue Sheet Block             5
@@ -51,6 +51,85 @@ func ReadFLACTags(r io.ReadSeeker) (Metadata, error) {
 	return m, nil
 }
 
+type metadataFLAC struct {
+	*metadataVorbis
+}
+
+type flacMetaHeadersLayout struct {
+	commentBlockPos int64
+	commentBlockLen int
+	paddingBlockPos int64
+	paddingBlockLen int
+}
+
+func (m *flacMetaHeadersLayout) findBlocks(r io.ReadSeeker) error {
+
+	originalPos, _ := r.Seek(0, io.SeekCurrent)
+	bi := 0 // blocks count
+	commentBlockIndex := 0
+forLoop:
+	for {
+		blockHeader, err := readBytes(r, 1)
+		if err != nil {
+			return err
+		}
+
+		last := false
+
+		if getBit(blockHeader[0], 7) {
+			blockHeader[0] ^= (1 << 7)
+			last = true
+		}
+
+		blockLen, err := readInt(r, 3)
+		if err != nil {
+			return err
+		}
+
+		switch blockType(blockHeader[0]) {
+		case vorbisCommentBlock:
+			m.commentBlockLen = blockLen
+			m.commentBlockPos, _ = r.Seek(0, io.SeekCurrent)
+			m.commentBlockPos -= 4 // to account for the block header
+			commentBlockIndex = bi
+
+		case paddingBlock:
+			// We want only the padding block immediately after comment block
+			if bi == commentBlockIndex+1 {
+				m.paddingBlockLen = blockLen
+				m.paddingBlockPos, _ = r.Seek(0, io.SeekCurrent)
+				m.paddingBlockPos -= 4 // to account for the block header
+				break forLoop
+			}
+		}
+		_, err = r.Seek(int64(blockLen), io.SeekCurrent)
+
+		bi++
+
+		if last {
+			break
+		}
+	}
+
+	r.Seek(originalPos, io.SeekStart)
+	return nil
+}
+
+func (m *flacMetaHeadersLayout) shiftPadding(rw io.ReadWriteSeeker, newCommentBlockLen int) {
+	offset := newCommentBlockLen - m.commentBlockLen
+	newPadBlockLen := m.paddingBlockLen - offset
+	newPadBlockPos := m.paddingBlockPos + int64(offset)
+
+	origPadBlockHeaderByte := make([]byte, 1)
+	rw.Seek(m.paddingBlockPos, io.SeekStart)
+	rw.Read(origPadBlockHeaderByte)
+	rw.Seek(newPadBlockPos, io.SeekStart)
+	rw.Write(origPadBlockHeaderByte)
+
+	blockLenBytes := formatUintBigEndian(uint(newPadBlockLen), 3)
+	rw.Write(blockLenBytes)
+}
+
 func WriteFLACTags(rw io.ReadWriteSeeker, data map[string]string) error {
 	flac, err := readString(rw, 4)
 	if err != nil {
@@ -60,11 +139,23 @@ func WriteFLACTags(rw io.ReadWriteSeeker, data map[string]string) error {
 		return errors.New("expected 'fLaC'")
 	}
 
-	return findAndWriteFlacCommentBlock(rw, data)
-}
+	techMeta := flacMetaHeadersLayout{}
+	techMeta.findBlocks(rw)
 
-type metadataFLAC struct {
-	*metadataVorbis
+	preparedVorbisComment := PrepareVorbisComment(data)
+	newCommentBlockLen := len(preparedVorbisComment)
+	if newCommentBlockLen < techMeta.commentBlockLen+(techMeta.paddingBlockLen-4) && techMeta.paddingBlockLen > 0 {
+		techMeta.shiftPadding(rw, newCommentBlockLen)
+		rw.Seek(techMeta.commentBlockPos+1, io.SeekStart)
+		blockLenBytes := formatUintBigEndian(uint(newCommentBlockLen), 3)
+		rw.Write(blockLenBytes)
+		rw.Write(preparedVorbisComment)
+		return nil
+	}
+
+	return errors.New("cannot write tags without padding")
+
+	return findAndWriteFlacCommentBlock(rw, data)
 }
 
 func findAndWriteFlacCommentBlock(rw io.ReadWriteSeeker, data map[string]string) error {
@@ -73,11 +164,6 @@ func findAndWriteFlacCommentBlock(rw io.ReadWriteSeeker, data map[string]string)
 		blockHeader, err := readBytes(rw, 1)
 		if err != nil {
 			return err
-		}
-
-		if getBit(blockHeader[0], 7) {
-			blockHeader[0] ^= (1 << 7)
-			break
 		}
 
 		blockLen, err := readInt(rw, 3)
@@ -91,7 +177,7 @@ func findAndWriteFlacCommentBlock(rw io.ReadWriteSeeker, data map[string]string)
 			preparedVorbisComment := PrepareVorbisComment(data)
 
 			newBlockLen := len(preparedVorbisComment)
-			blockLenBytes := formatIntBigEndian(uint(newBlockLen), 3)
+			blockLenBytes := formatUintBigEndian(uint(newBlockLen), 3)
 			rw.Seek(-3, io.SeekCurrent)
 			rw.Write(blockLenBytes)
 
@@ -126,6 +212,11 @@ func findAndWriteFlacCommentBlock(rw io.ReadWriteSeeker, data map[string]string)
 
 		default:
 			_, err = rw.Seek(int64(blockLen), io.SeekCurrent)
+		}
+
+		if getBit(blockHeader[0], 7) {
+			blockHeader[0] ^= (1 << 7)
+			break
 		}
 	}
 	return nil
